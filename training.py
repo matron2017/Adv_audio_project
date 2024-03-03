@@ -1,103 +1,165 @@
 import os
+import pickle
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
-from sklearn.model_selection import train_test_split
-import pickle
 
 # Define your neural network model
-class SimpleCNN(nn.Module):
-    def __init__(self, num_classes):
-        super(SimpleCNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
-        self.relu = nn.ReLU()
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
-        self.fc1 = nn.Linear(32 * 32 * 32, num_classes)  # Adjust input size based on your mel-spectrogram dimensions
+class SimpleNN(nn.Module):
+    def __init__(self, input_size, num_classes):
+        super(SimpleNN, self).__init__()
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(input_size, 512)  # Increase neurons to 512
+        self.relu1 = nn.ReLU()
+        self.batch_norm1 = nn.BatchNorm1d(512)
+        self.dropout1 = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(512, 256)  # Increase neurons to 256
+        self.relu2 = nn.ReLU()
+        self.batch_norm2 = nn.BatchNorm1d(256)
+        self.dropout2 = nn.Dropout(0.5)
+        self.fc3 = nn.Linear(256, num_classes)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.relu(x)
-        x = self.pool(x)
-        x = self.conv2(x)
-        x = self.relu(x)
-        x = self.pool(x)
-        x = x.view(x.size(0), -1)
+        x = self.flatten(x)
         x = self.fc1(x)
+        x = self.relu1(x)
+        x = self.batch_norm1(x)
+        x = self.dropout1(x)
+        x = self.fc2(x)
+        x = self.relu2(x)
+        x = self.batch_norm2(x)
+        x = self.dropout2(x)
+        x = self.fc3(x)
         return x
 
 # Custom dataset class
-class SpectrogramDataset(Dataset):
-    def __init__(self, data_folder, file_list):
-        self.data_folder = data_folder
-        self.file_list = file_list
+class MelSpectrogramDataset(Dataset):
+    def __init__(self, data_path):
+        self.data_path = data_path
+        self.data, self.labels = self.load_data()
+
+    def load_data(self):
+        data = []
+        labels = []
+
+        for filename in os.listdir(self.data_path):
+            if filename.endswith(".pkl"):
+                filepath = os.path.join(self.data_path, filename)
+                with open(filepath, 'rb') as f:
+                    data_dict = pickle.load(f)
+                    mel_spectrogram = data_dict['mel_spectrogram']
+                    label = data_dict['label']
+                    data.append(mel_spectrogram)
+                    labels.append(label)
+
+        return np.array(data), np.array(labels)
 
     def __len__(self):
-        return len(self.file_list)
+        return len(self.data)
 
-    def __getitem__(self, idx):
-        file_name = self.file_list[idx]
-        file_path = os.path.join(self.data_folder, file_name)
-        with open(file_path, 'rb') as f:
-            data = pickle.load(f)
+    def __getitem__(self, index):
+        return torch.Tensor(self.data[index]), torch.tensor(self.labels[index])
 
-        # Perform any additional preprocessing if necessary
-        mel_spectrogram = data['mel_spectrogram']
-        label = data['label']
-
-        return mel_spectrogram, label
-
-# Set your data folder
-data_folder = "output_mel_spectrograms/"
-
-# Split the dataset into training and validation sets
-file_list = os.listdir(data_folder)
-train_files, val_files = train_test_split(file_list, test_size=0.2, random_state=42)
-
-# Create datasets and data loaders
-train_dataset = SpectrogramDataset(data_folder, train_files)
-val_dataset = SpectrogramDataset(data_folder, val_files)
-
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-
-# Initialize the model, loss function, and optimizer
-num_classes = 9  # Number of classes in your dataset
-model = SimpleCNN(num_classes)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-# Training loop
-num_epochs = 10
-
-for epoch in range(num_epochs):
+# Function to train the model
+def train_model(model, train_loader, criterion, optimizer):
     model.train()
-
-    for mel_spectrogram, label in train_loader:
+    for data, labels in train_loader:
         optimizer.zero_grad()
-        mel_spectrogram = mel_spectrogram.unsqueeze(1)  # Add channel dimension for 1-channel input
-        output = model(mel_spectrogram)
-        loss = criterion(output, label)
+        outputs = model(data)
+        loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
+    return loss.item()
 
-    # Validation loop
+# Function to validate the model
+def validate_model(model, val_loader, criterion):
     model.eval()
-    total_correct = 0
-    total_samples = 0
-
+    correct = 0
+    total = 0
     with torch.no_grad():
-        for mel_spectrogram, label in val_loader:
-            mel_spectrogram = mel_spectrogram.unsqueeze(1)
-            output = model(mel_spectrogram)
-            _, predicted = torch.max(output, 1)
-            total_correct += (predicted == label).sum().item()
-            total_samples += label.size(0)
+        for data, labels in val_loader:
+            outputs = model(data)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    accuracy = correct / total
+    return accuracy
 
-    accuracy = total_correct / total_samples
-    print(f'Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item():.4f}, Accuracy: {accuracy:.4f}')
+# Function to test the model
+def test_model(model, test_loader, criterion):
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for data, labels in test_loader:
+            outputs = model(data)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    accuracy = correct / total
+    return accuracy
 
-# Save the trained model
-torch.save(model.state_dict(), 'trained_model.pth')
+# Set paths and parameters
+output_directory = "output_mel_spectrograms/"
+metadata_file = "Data/meta.csv"
+num_classes = 10
+input_shape = (128, 216)  # Adjust according to your mel-spectrogram shape
+
+
+
+# Load mel-spectrogram data and labels
+dataset = MelSpectrogramDataset(output_directory)
+
+# Encode labels
+label_encoder = LabelEncoder()
+encoded_labels = label_encoder.fit_transform(dataset.labels)
+
+# Split data into training, validation, and testing sets
+X_train, X_temp, y_train, y_temp = train_test_split(dataset.data, encoded_labels, test_size=0.2, random_state=42)
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+#Print number of total samples
+print(f"Number of total samples: {len(dataset.data)}")
+
+#Print number of train, test and validation samples
+print(f"Number of training samples: {len(X_train)}")
+print(f"Number of validation samples: {len(X_val)}")
+print(f"Number of testing samples: {len(X_test)}")
+
+# Create DataLoader instances
+train_loader = DataLoader(list(zip(X_train, y_train)), batch_size=32, shuffle=True)
+val_loader = DataLoader(list(zip(X_val, y_val)), batch_size=32, shuffle=False)
+test_loader = DataLoader(list(zip(X_test, y_test)), batch_size=32, shuffle=False)
+
+# Initialize model, loss function, and optimizer
+model = SimpleNN(np.prod(input_shape), num_classes)
+criterion = nn.CrossEntropyLoss()
+
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)  # Adjust parameters as needed
+
+# Training loop
+num_epochs = 50
+for epoch in range(num_epochs):
+    # Train the model
+    train_loss = train_model(model, train_loader, criterion, optimizer)
+    scheduler.step()  # Update learning rate schedule
+    
+    # Validate the model
+    val_accuracy = validate_model(model, val_loader, criterion)
+    
+    print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
+
+# Test the model
+test_accuracy = test_model(model, test_loader, criterion)
+print(f"Test Accuracy: {test_accuracy:.4f}")
+
+# Save the model and label encoder
+torch.save(model.state_dict(), 'pytorch_model.pth')
+with open('label_encoder.pkl', 'wb') as le_file:
+    pickle.dump(label_encoder, le_file)
