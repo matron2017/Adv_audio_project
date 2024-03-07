@@ -147,16 +147,26 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)  # Adjust parameters as needed
 
 # Training loop
-num_epochs = 20
+# Training loop
+num_epochs = 6
+train_losses = []
+val_losses = []
+train_accuracies = []
+val_accuracies = []
 for epoch in range(num_epochs):
-    # Train the model
     train_loss = train_model(model, train_loader, criterion, optimizer)
-    scheduler.step()  # Update learning rate schedule
-    
-    # Validate the model
+    scheduler.step()
+    val_loss = validate_model(model, val_loader, criterion)
+    train_accuracy = validate_model(model, train_loader, criterion)
     val_accuracy = validate_model(model, val_loader, criterion)
     
-    print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
+    train_losses.append(train_loss)
+    val_losses.append(val_loss)
+    train_accuracies.append(train_accuracy)
+    val_accuracies.append(val_accuracy)
+    
+    print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}, Train Accuracy: {train_accuracy:.4f}, Validation Accuracy: {val_accuracy:.4f}")
+
 
 # Test the model
 test_accuracy = test_model(model, test_loader, criterion)
@@ -166,3 +176,75 @@ print(f"Test Accuracy: {test_accuracy:.4f}")
 torch.save(model.state_dict(), 'pytorch_model.pth')
 with open('label_encoder.pkl', 'wb') as le_file:
     pickle.dump(label_encoder, le_file)
+
+# Visualize confusion matrix and save the figure
+def plot_confusion_matrix(y_true, y_pred, classes, save_path=None):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(8, 6))
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title('Confusion Matrix')
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    fmt = 'd'
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            plt.text(j, i, format(cm[i, j], fmt), horizontalalignment="center", color="white" if cm[i, j] > thresh else "black")
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, 'confusion_matrix.png'))
+    else:
+        plt.show()
+
+# Plot confusion matrix
+y_true = y_test
+model.eval()
+with torch.no_grad():
+    y_pred = []
+    for data, labels in test_loader:
+        outputs = model(data)
+        _, predicted = torch.max(outputs, 1)
+        y_pred.extend(predicted.cpu().numpy())
+
+# Specify the directory to save the figures
+save_directory = os.path.dirname(os.path.realpath(__file__))
+
+plot_confusion_matrix(y_true, y_pred, classes=label_encoder.classes_, save_path=save_directory)
+
+# Plot training and validation loss
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, num_epochs + 1), train_losses, label='Train Loss')
+plt.plot(range(1, num_epochs + 1), val_losses, label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training and Validation Loss')
+plt.legend()
+plt.grid(True)
+plt.savefig(os.path.join(save_directory, 'training_validation_loss.png'))
+
+# Plot training and validation accuracy
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, num_epochs + 1), train_accuracies, label='Train Accuracy')
+plt.plot(range(1, num_epochs + 1), val_accuracies, label='Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.title('Training and Validation Accuracy')
+plt.legend()
+plt.grid(True)
+plt.savefig(os.path.join(save_directory, 'training_validation_accuracy.png'))
+    
+    
+# Calculate precision, recall, f1-score, and class-wise accuracy
+precision = precision_score(y_true, y_pred, average='weighted')
+recall = recall_score(y_true, y_pred, average='weighted')
+f1 = f1_score(y_true, y_pred, average='weighted')
+class_accuracy = accuracy_score(y_true, y_pred)
+
+print(f"Precision: {precision:.4f}")
+print(f"Recall: {recall:.4f}")
+print(f"F1-Score: {f1:.4f}")
+print(f"Class-wise Accuracy: {class_accuracy:.4f}")
