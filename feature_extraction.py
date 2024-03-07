@@ -39,6 +39,7 @@ segment_length = 5
 n_mels = 128
 
 # Loop through each row in the metadata
+count = 0
 for index, row in metadata.iterrows():
     audio_file = row['filename']
     scene_label = row['scene_label']
@@ -50,10 +51,12 @@ for index, row in metadata.iterrows():
     #print(f"Shape of spectrogram at saving: {np.shape(mel_spectrogram)}")
     #Check correct shape
     if np.shape(mel_spectrogram) == (n_mels, 216):
-        output_filename = f"{output_directory}{scene_label}_{identifier}.pkl"
+        output_filename = f"{output_directory}{scene_label}_{count}.pkl"
         data_to_save = {'mel_spectrogram': mel_spectrogram, 'label': scene_label}
         with open(output_filename, 'wb') as f:
             pickle.dump(data_to_save, f)
+            count += 1
             #print(f"Mel-spectrogram saved for {audio_file} as {output_filename}")
     else:
         print(f"Mel-spectrogram not saved for {audio_file}")
+print(f"Total mel-spectrograms saved: {count}")

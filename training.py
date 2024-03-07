@@ -56,6 +56,7 @@ class MelSpectrogramDataset(Dataset):
                     label = data_dict['label']
                     data.append(mel_spectrogram)
                     labels.append(label)
+                    #print(f"Label: {label}")
 
         return np.array(data), np.array(labels)
 
@@ -118,6 +119,8 @@ dataset = MelSpectrogramDataset(output_directory)
 # Encode labels
 label_encoder = LabelEncoder()
 encoded_labels = label_encoder.fit_transform(dataset.labels)
+print(f"Unique labels: {label_encoder.classes_}")
+#print(f"Encoded labels: {encoded_labels}")
 
 # Split data into training, validation, and testing sets
 X_train, X_temp, y_train, y_temp = train_test_split(dataset.data, encoded_labels, test_size=0.2, random_state=42)
@@ -132,8 +135,8 @@ print(f"Number of validation samples: {len(X_val)}")
 print(f"Number of testing samples: {len(X_test)}")
 
 # Create DataLoader instances
-train_loader = DataLoader(list(zip(X_train, y_train)), batch_size=32, shuffle=True)
-val_loader = DataLoader(list(zip(X_val, y_val)), batch_size=32, shuffle=False)
+train_loader = DataLoader(list(zip(X_train, y_train)), batch_size=128, shuffle=True)
+val_loader = DataLoader(list(zip(X_val, y_val)), batch_size=64, shuffle=False)
 test_loader = DataLoader(list(zip(X_test, y_test)), batch_size=32, shuffle=False)
 
 # Initialize model, loss function, and optimizer
@@ -144,7 +147,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)  # Adjust parameters as needed
 
 # Training loop
-num_epochs = 50
+num_epochs = 20
 for epoch in range(num_epochs):
     # Train the model
     train_loss = train_model(model, train_loader, criterion, optimizer)
