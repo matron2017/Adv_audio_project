@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -166,3 +168,56 @@ print(f"Test Accuracy: {test_accuracy:.4f}")
 torch.save(model.state_dict(), 'pytorch_model.pth')
 with open('label_encoder.pkl', 'wb') as le_file:
     pickle.dump(label_encoder, le_file)
+
+# Visualize confusion matrix and save the figure
+def plot_confusion_matrix(y_true, y_pred, classes, save_path=None):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(8, 6))
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title('Confusion Matrix')
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    fmt = 'd'
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            plt.text(j, i, format(cm[i, j], fmt), horizontalalignment="center", color="white" if cm[i, j] > thresh else "black")
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(os.path.join(save_path, 'confusion_matrix.png'))
+    else:
+        plt.show()
+
+# Plot confusion matrix
+y_true = y_test
+model.eval()
+with torch.no_grad():
+    y_pred = []
+    for data, labels in test_loader:
+        outputs = model(data)
+        _, predicted = torch.max(outputs, 1)
+        y_pred.extend(predicted.cpu().numpy())
+
+# Specify the directory to save the figures
+save_directory = os.path.dirname(os.path.realpath(__file__))
+
+plot_confusion_matrix(y_true, y_pred, classes=label_encoder.classes_, save_path=save_directory)
+
+# Plot training and validation loss/accuracy over epochs and save the figure
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, num_epochs + 1), train_losses, label='Train Loss')
+plt.plot(range(1, num_epochs + 1), val_accuracies, label='Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Loss/Accuracy')
+plt.title('Training and Validation Metrics')
+plt.legend()
+plt.grid(True)
+if save_directory:
+    plt.savefig(os.path.join(save_directory, 'training_validation_metrics.png'))
+else:
+    plt.show()
+
